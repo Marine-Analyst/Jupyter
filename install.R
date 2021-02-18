@@ -13,5 +13,6 @@ install.packages("ows4R")
 install.packages("sf")
 install.packages("tidyverse")
 install.packages("httr")
+install.packages("geojsonio")
 
 
