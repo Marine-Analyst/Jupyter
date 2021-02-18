@@ -1,5 +1,3 @@
 libgdal-dev
 libproj-dev
 libudunits2-dev
-libgeos-c1
-libgdal1-dev
