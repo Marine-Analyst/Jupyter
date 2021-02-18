@@ -9,3 +9,9 @@ install.packages('downloader')
 install.packages('rgdal')
 install.packages('XML')
 install.packages("rgeos")
+install.packages("ows4R")
+install.packages("sf")
+install.packages("tidyverse")
+install.packages("httr")
+
+
