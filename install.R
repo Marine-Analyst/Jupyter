@@ -14,7 +14,7 @@ install.packages("sf")
 install.packages("tidyverse")
 install.packages("httr")
 install.packages("rgeos")
-#install.packages("geojsonio")
+install.packages("KableExtra")
 install.packages("RCurl")
 install.packages("bitops")
 install.packages("lattice")
@@ -27,6 +27,6 @@ install.packages("rworldxtra")
 install.packages("fastcluster")
 install.packages("dplyr")
 install.packages("FactoMineR")
-install.packages("KableExtra")
+
 
 
