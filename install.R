@@ -27,5 +27,6 @@ install.packages("rworldxtra")
 install.packages("fastcluster")
 install.packages("dplyr")
 install.packages("FactoMineR")
+install.packages("KableExtra")
 
 
