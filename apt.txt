@@ -3,3 +3,4 @@ libproj-dev
 libudunits2-dev
 libjq-dev
 cargo
+ffmpeg
