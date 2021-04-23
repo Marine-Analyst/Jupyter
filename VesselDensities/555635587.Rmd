@@ -1,0 +1,1398 @@
+---
+title: "EU Marine Protected Area: vessel traffic analysis 2017-2019"
+author: Document produced by http://www.marine-analyst.eu
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: paged
+    number_section: yes
+    theme: default
+    toc: yes
+    toc_depth: 2
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+```{r setup, include=FALSE}
+library(knitr)
+library(kableExtra)
+knitr::opts_chunk$set(
+  eval = TRUE,
+	echo = TRUE,
+	fig.align = "center",
+	message = FALSE,
+	warning = FALSE,
+	fig.width=5.5,
+	out.width = "100%"
+)
+# clean environment
+rm(list=ls())
+gc()
+```
+
+```{r, include=FALSE, results='hide'}
+
+source_provider <- "WDPAID"
+source_provider_url <- "https://marine.copernicus.eu"
+
+```
+```{r, include=FALSE, results='hide'}
+
+library(rgdal)
+library(downloader)
+library(httr)
+httr::set_config(httr::config(ssl_verifypeer = 0L))
+library(ggplot2)
+library(mapdata)
+
+library(rasterVis)
+library(rgeos)
+library(sp)
+library(raster)
+library(xml2)
+
+library(ggmap)
+library(ggrepel)
+
+library("XML")
+library("RCurl")
+library("bitops")
+library("lattice")
+library("latticeExtra")
+library("RColorBrewer")
+
+library("maps")
+library("maptools")
+library("wq")
+library("xtable")
+library("zoo")
+library("jsonlite")
+
+require(xtable)
+library(lattice)
+
+```
+
+```{r, include=FALSE, results='hide'}
+
+
+wdpaid<-555635587
+
+query = sprintf("SELECT * FROM \"555635587\" WHERE wdpaid = %s", wdpaid)
+mpa = sf::st_read("c:/temp/wdpaid/555635587.shp",query = query, options = "ENCODING=UTF8")
+#mpa = sf::st_read("/var/www/html/rprocessing/wdpa/555635587.shp",query = query, options = "ENCODING=UTF8")
+mpa<-as(mpa, "Spatial")
+
+xmin <- as.numeric(extent(mpa)@xmin)
+ymin <- as.numeric(extent(mpa)@ymin)
+xmax <- as.numeric(extent(mpa)@xmax)
+ymax <- as.numeric(extent(mpa)@ymax)
+
+
+bbox<-paste(xmin,ymin,xmax,ymax,sep=",")
+
+layer_title<-iconv(mpa@data$NAME, from = "", to = "UTF-8")
+
+```
+
+```{r, include=FALSE, results='hide'}
+
+rggbplot <- function(inRGBRst,npix=NA,scale = 'lin'){
+ 
+  rgblinstretch <- function(rgbDf){
+    maxList <- apply(rgbDf,2,max)
+    minList <- apply(rgbDf,2,min)
+    temp<-rgbDf
+    for(i in c(1:3)){
+      temp[,i] <- (temp[,i]-minList[i])/(maxList[i]-minList[i])
+    }
+    return(temp)
+  }
+ 
+  rgbeqstretch<-function(rgbDf){
+ 
+    temp<-rgbDf
+    for(i in c(1:3)){
+      unique <- na.omit(temp[,i])
+      if (length(unique>0)){
+        ecdf<-ecdf(unique)
+        temp[,i] <- apply(temp[,i,drop=FALSE],2,FUN=function(x) ecdf(x))
+      }
+    }
+    return(temp)
+  }
+ 
+
+      npix <- ncell(inRGBRst)
+
+  x <- sampleRegular(inRGBRst, size=npix, asRaster = TRUE)
+  dat <- as.data.frame(x, xy=TRUE)
+  colnames(dat)[3:5]<-c('r','g','b')
+ 
+  if(scale=='lin'){
+    dat[,3:5]<- rgblinstretch(dat[,3:5])
+  } else if(scale=='stretch'){
+    dat[,3:5]<- rgbeqstretch(dat[,3:5])
+  }
+ 
+  p <- ggplot()+ geom_tile(data=dat, aes(x=x, y=y, fill=rgb(r,g,b))) + scale_fill_identity()
+ 
+}
+
+```
+
+```{r ,echo=FALSE}
+
+getWMSbasemap<-function (xmin,xmax,ymin,ymax)
+{
+width <- 960
+height <- as.integer(width * (ymax-ymin) / (xmax-xmin))
+
+bbox <- paste(xmin, ymin, xmax, ymax, sep = ",")
+
+wms_basemap_url="http://www.gebco.net/data_and_products/gebco_web_services/web_map_service/mapserv"
+wms_basemap_layer="gebco_latest"
+con<-paste0(wms_basemap_url,"?SERVICE=WMS&VERSION=1.1.0&request=GetMap&layers=",wms_basemap_layer,"&format=image/png&srs=EPSG:4326&bbox=",bbox,"&height=",height,"&width=",width,"") 
+        wms <- "img.png"
+        wms <- tempfile(wms)
+        download(con, wms, quiet = TRUE, mode = "wb")
+        basemap <- brick(wms)
+names(basemap) <- c("img.1", "img.2", "img.3")
+
+img <- basemap
+
+img@extent@xmin <- xmin
+img@extent@ymin <- ymin
+img@extent@xmax <- xmax
+img@extent@ymax <- ymax
+proj4string(img)<-CRS("+proj=longlat +datum=WGS84")
+return(img)
+}
+
+
+wms_img<-getWMSbasemap(xmin,xmax,ymin,ymax)
+
+map <- rggbplot(wms_img)+
+geom_polygon(data=mpa,aes(x=long,y=lat,group=group,fill="mpa"),colour="red",fill="blue",alpha=.1)+
+coord_quickmap(xlim=range(xmin,xmax),ylim=range(ymin,ymax))+
+ggtitle(layer_title)+xlab("Longitude")+ylab("Latitude")
+
+plot(map)
+
+```
+
+
+
+# MPA information
+
+```{r,echo=FALSE}
+
+name_Wdpaid<-iconv(mpa@data$WDPAID, from = "", to = "UTF-8")
+name_Wdpa_pid<-iconv(mpa@data$WDPA_PID_pid, from = "", to = "UTF-8")
+name_Pa_def<-iconv(mpa@data$PA_DEF, from = "", to = "UTF-8")
+name_Name<-iconv(mpa@data$NAME, from = "", to = "UTF-8")
+name_Orig_name<-iconv(mpa@data$ORIG_NAME, from = "", to = "UTF-8")
+name_Desig<-iconv(mpa@data$DESIG, from = "", to = "UTF-8")
+name_Desig_eng<-iconv(mpa@data$DESIG_ENG, from = "", to = "UTF-8")
+name_Desig_type<-iconv(mpa@data$DESIG_TYPE, from = "", to = "UTF-8")
+name_Iucn_cat<-iconv(mpa@data$IUCN_CAT, from = "", to = "UTF-8")
+name_Int_crit<-iconv(mpa@data$INT_CRIT, from = "", to = "UTF-8")
+name_Marine<-iconv(mpa@data$MARINE, from = "", to = "UTF-8")
+name_Rep_m_area<-iconv(mpa@data$REP_M_AREA, from = "", to = "UTF-8")
+name_Gis_m_area<-iconv(mpa@data$GIS_M_AREA, from = "", to = "UTF-8")
+name_Rep_area<-iconv(mpa@data$REP_AREA, from = "", to = "UTF-8")
+name_Gis_area<-iconv(mpa@data$GIS_AREA, from = "", to = "UTF-8")
+name_Not_take<-iconv(mpa@data$NO_TAKE, from = "", to = "UTF-8")
+name_Not_tk_take<-iconv(mpa@data$NO_TK_AREA, from = "", to = "UTF-8")
+name_Status<-iconv(mpa@data$STATUS, from = "", to = "UTF-8")
+name_Status_yr<-iconv(mpa@data$STATUS_YR, from = "", to = "UTF-8")
+name_Gov_type<-iconv(mpa@data$GOV_TYPE, from = "", to = "UTF-8")
+name_Own_type<-iconv(mpa@data$OWN_TYPE, from = "", to = "UTF-8")
+name_Mang_auth<-iconv(mpa@data$MANG_AUTH, from = "", to = "UTF-8")
+name_Mang_plan<-iconv(mpa@data$MANG_PLAN, from = "", to = "UTF-8")
+name_Verif<-iconv(mpa@data$VERIF, from = "", to = "UTF-8")
+name_Metadata_i<-iconv(mpa@data$METADATAID, from = "", to = "UTF-8")
+name_Sub_loc<-iconv(mpa@data$SUB_LOC, from = "", to = "UTF-8")
+name_Parent_iso<-iconv(mpa@data$PARENT_ISO, from = "", to = "UTF-8")
+name_Iso3<-iconv(mpa@data$ISO3, from = "", to = "UTF-8")
+
+```
+
+<TABLE BORDER=0 CELLSPACING=0 CELLPADDING=0 WIDTH=100%><TR><TD WIDTH=100% VALIGN=TOP>
+
+<TABLE>
+<TR><TD>Wdpaid: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Wdpaid)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Pa_def: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Pa_def)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Name: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard><b>`r toString(name_Name)`</b></DIV></DIV>
+</TD></TR>
+<TR><TD>Orig_name: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Orig_name)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Desig: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Desig)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Desig_eng: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Desig_eng)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Desig_type: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Desig_type)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Iucn_cat: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Iucn_cat)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Int_crit: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Int_crit)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Marine: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Marine)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Rep_m_area: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Rep_m_area)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Gis_m_area: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Gis_m_area)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Rep_area: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Rep_area)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Gis_area: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Gis_area)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Not_take: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Not_take)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Not_tk_take: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Not_tk_take)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Status: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Status)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Status_yr: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Status_yr)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Gov_type: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Gov_type)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Own_type: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Own_type)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Mang_auth: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Mang_auth)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Mang_plan: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Mang_plan)`</DIV></DIV>
+</TD></TR><TR><TD>Verif: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Verif)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Metadata_i: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Metadata_i)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Sub_loc: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Sub_loc)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Parent_iso: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Parent_iso)`</DIV></DIV>
+</TD></TR>
+<TR><TD>Iso3: </TD><TD>
+<DIV ALIGN=JUSTIFY class=><DIV id=standard>`r toString(name_Iso3)`</DIV></DIV>
+</TD></TR>
+</TABLE>
+
+</TD></TR></TABLE>
+
+# Geographical extent
+
+## Coordinates
+```{r,echo=FALSE}
+
+print (paste("West-Longitude:",round(xmin,2)))
+print (paste("South-Latitude:",round(ymin,2)))
+print (paste("East-Longitude:",round(xmax,2)))
+print (paste("North-Latitude:",round(ymax,2)))
+
+```
+
+```{r, include=FALSE, results='hide'}
+
+# Link to Marine Analyst dataset page
+
+link_marineanalyst <- paste0("http://marine-analyst.eu/index.py?maxlat=",ymax,"&maxlon=",xmax,"&minlon=",xmin,"&minlat=",ymin)
+
+```
+
+
+## MPA area
+
+### Topography
+
+```{r ,echo=FALSE}
+
+getWMSbasemapXL<-function (xmin,xmax,ymin,ymax)
+{
+width <- 960
+height <- as.integer(width * (ymax-ymin) / (xmax-xmin))
+
+bbox <- paste(xmin, ymin, xmax, ymax, sep = ",")
+
+wms_basemap_url="http://www.gebco.net/data_and_products/gebco_web_services/web_map_service/mapserv"
+wms_basemap_layer="gebco_latest"
+con<-paste0(wms_basemap_url,"?SERVICE=WMS&VERSION=1.1.0&request=GetMap&layers=",wms_basemap_layer,"&format=image/png&srs=EPSG:4326&bbox=",bbox,"&height=",height,"&width=",width,"")
+        wms <- "img.png"
+        wms <- tempfile(wms)
+        download(con, wms, quiet = TRUE, mode = "wb")
+        basemap <- brick(wms)
+names(basemap) <- c("img.1", "img.2", "img.3")
+
+img <- basemap
+
+img@extent@xmin <- xmin
+img@extent@ymin <- ymin
+img@extent@xmax <- xmax
+img@extent@ymax <- ymax
+proj4string(img)<-CRS("+proj=longlat +datum=WGS84")
+return(img)
+}
+
+Xmin <- as.numeric(xmin-1)
+Ymin <- as.numeric(ymin-1)
+Xmax <- as.numeric(xmax+1)
+Ymax <- as.numeric(ymax+1)
+
+wms_imgXL<-getWMSbasemapXL(Xmin,Xmax,Ymin,Ymax)
+
+mapXL <- rggbplot(wms_imgXL)+
+geom_polygon(data=mpa,aes(x=long,y=lat,group=group,fill="mpa"),colour="red",fill="blue",alpha=.1)+
+coord_quickmap(xlim=range(Xmin,Xmax),ylim=range(Ymin,Ymax))+
+ggtitle(layer_title)+xlab("Longitude")+ylab("Latitude")
+
+plot(mapXL)
+
+```
+
+
+
+```{r, include=FALSE, results='hide'}
+
+
+
+getWMSmap<-function (wms_url,wms_layer,xmin,xmax,ymin,ymax)
+{
+width <- 960
+height <- as.integer(width * (ymax-ymin) / (xmax-xmin))
+wms_url<-as.character(wms_url)
+wms_layer<-as.character(wms_layer)
+bbox <- paste(xmin, ymin, xmax, ymax, sep = ",")
+con<-paste0(wms_url,"SERVICE=WMS&VERSION=1.1.1&STYLES=boxfill/rainbow&request=GetMap&layers=",wms_layer,"&format=image/png&srs=EPSG:4326&TRANSPARENT=true&bbox=",bbox,"&height=",height,"&width=",width,"")
+
+        wms <- "img.png"
+        wms <- tempfile(wms)
+        #download(con, wms, quiet = TRUE, mode = "wb")
+		httr::GET(con,write_disk(wms))
+        img <- brick(wms)
+		
+		names(img) <- c("img.1")
+		img[img$img.1 > 249] <- NA
+		
+print(con)
+img@extent@xmin <- xmin
+img@extent@ymin <- ymin
+img@extent@xmax <- xmax
+img@extent@ymax <- ymax
+proj4string(img)<-CRS("+proj=longlat +datum=WGS84")
+return(img)
+}
+
+getWMSgetFeatureInfo<-function (wms_url,wms_layer,yLat,xLon,xmin,xmax,ymin,ymax)
+{
+width <- 960
+height <- as.integer(width * (ymax-ymin) / (xmax-xmin))
+wms_url<-as.character(wms_url)
+wms_layer<-as.character(wms_layer)
+bbox <- paste(xmin, ymin, xmax, ymax, sep = ",")
+con<-paste0(wms_url,"SERVICE=WMS&VERSION=1.1.1&STYLES=boxfill/rainbow&request=GetFeatureInfo&query_layers=",wms_layer,"&layers=",wms_layer,"&INFO_FORMAT=text/xml&FEATURE_COUNT=50&X=",xLon,"&Y=",yLat,"&format=image/png&srs=EPSG:4326&TRANSPARENT=true&bbox=",bbox,"&height=",height,"&width=",width,"")
+#data <- xmlParse(con)
+#xml_data <- xmlToList(data)
+        xml <- "file.xml"
+        xml <- tempfile(xml)
+httr::GET(con,write_disk(xml))
+data <- xml2::read_xml(xml)
+xml_data <- xml2::as_list(data)
+return(xml_data)
+}
+
+
+```
+
+
+
+
+
+
+
+
+
+### Geographical location
+
+```{r ,echo=FALSE}
+value<-(xmax-xmin)*(ymax-ymin)
+if (value > 100) {
+      zoom_value<-6
+} else if (value > 1) {
+      zoom_value<-7
+} else {
+      zoom_value<-8
+}
+base<-get_map(location=c(xmin-1,ymin-1,xmax+1,ymax+1), zoom=zoom_value, maptype="terrain-background", source = "stamen")
+terrain <- ggmap(base)
+map <- terrain + geom_polygon(data=mpa,aes(x=long,y=lat,group=group,fill="mpa"),colour="green",fill="blue",alpha=.1) +
+ggtitle("")+xlab("Longitude")+ylab("Latitude")
+plot(map)
+```
+Map tiles by <a href="http://stamen.com">Stamen Design</a>, under <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a>. Data by <a href="http://openstreetmap.org">OpenStreetMap</a>, under <a href="http://www.openstreetmap.org/copyright">ODbL</a>.
+
+
+```{r, include=FALSE, results='hide'}
+#FUNCTION PLOT PROCESS
+#===================================================================
+
+
+mpaprocessplot<-function (imgs, mpa, name, unite, logscale)
+{
+    if (dim(imgs)[3] < 12) {
+        print("Series is too short (ie less than 12 months)")
+    }
+    else {
+
+col.l <- colorRampPalette(c('white','cadetblue1','blue','cyan','green','yellow','orange','red','black'))
+#col.l <- colorRampPalette(c('blue','cyan','green','yellow','orange','red','black'))
+#imgs[imgs > 100] <- 100
+		
+ckey <- list(labels=list(cex=0.6, col='black'), height=1.0)
+imgsmean <- raster::mean(imgs, na.rm = T)
+        
+        
+#imgsclim <- stackApply(imgs, indices = as.numeric(substr(names(imgs),7, 8)), fun = mean, na.rm = TRUE)
+#names(imgsclim) <- paste("Month", unique(as.numeric(substr(names(imgs),7, 8))))
+
+#titre <- paste(name, " (", unite, ")", sep = "")
+#pltall <- rasterVis::levelplot(imgs, zscaleLog = logscale, contour = F, col.regions = col.l, colorkey=ckey, layout = c(4, NA), names = substr(names(imgs), 2, 8), main=list(label=titre, cex=1))
+pltall <- ''
+
+
+titre <- paste(name, " (", unite, ") ", substr(names(imgs)[1],2, 8), "-", substr(names(imgs)[dim(imgs)[3]], 2,8), " average", sep = "")
+pltmean <- rasterVis::levelplot(imgsmean, margin = F,zscaleLog = logscale, contour = F, col.regions = col.l,  colorkey=ckey,main=list(label=titre, cex=1))+ contourplot(imgsmean, at = c(0,1,10,20,40,60) , labels = F)
+        
+#titre <- paste(name, " (", unite, ") monthly vessel sensity (all)",sep = "")
+#pltclim <- rasterVis::levelplot(imgsclim, zscaleLog = logscale,contour = F, col.regions = col.l, colorkey=ckey, main=list(label=titre, cex=1),names = names(imgsclim))+ contourplot(imgsmean, at = c(0,1,10,20,40,60) , labels = F)
+pltclim <- ''
+
+        
+#titre <- paste(name, " (", unite, ") monthly boxplot", sep = "")
+#pltbw <- rasterVis::bwplot(crop(imgsclim, extent(mpa)),scales = list(x = list(labels = names(imgsclim))),main=list(label=titre, cex=1))
+pltbw <- ''
+
+return(list(pltall = pltall, pltmean = pltmean, pltclim = pltclim, pltbw = pltbw))
+    }
+}
+```
+
+
+```{r, include=FALSE, results='hide'}
+#FUNCTION GET VESSELDENSITY
+#=================================================
+getvesseldensityLite<-function (name = "emodnet:2017_01_st_All", resolution = "30 arcsec / 900m", xmin = 15, xmax = 20.5, ymin = 30, ymax = 32.5)
+{
+bbox <- paste(xmin, ymin, xmax, ymax, sep = ",")
+con <- paste(ogc_url,"/wcs?service=wcs&version=1.0.0&request=getcoverage&coverage=",name,"&crs=EPSG:4326&BBOX=", bbox, "&format=image/tiff&interpolation=nearest&resx=0.00833333&resy=0.00833333", sep = "")
+nomfich <- paste(name, "img.tiff", sep = "_")
+nomfich <- tempfile(nomfich)
+download(con, nomfich, quiet = TRUE, mode = "wb")
+img <- raster(nomfich)
+img[img == 0] <- NA
+#img[img < 0] <- 0
+#img[img > 100] <- 0
+names(img) <- paste(name)
+return(img)
+}
+```
+
+
+
+```{r, include=FALSE, results='hide'}
+source_provider <- "EMODnet Human activities"
+source_provider_url <- "https://www.emodnet-humanactivities.eu"
+
+layer2017="2017_st_01_avg"
+layer2018="2018_st_01_avg"
+layer2019="2019_st_01_avg"
+ogc_url <- "https://ows.emodnet-humanactivities.eu"
+
+```
+
+
+
+
+
+
+
+```{r, include=FALSE, results='hide'}
+getstat<-function (vessel_type = "st_01", xmin = 15, xmax = 20.5, ymin = 30, ymax = 32.5)
+{
+
+##################### getvesseldensityLite2017
+for (month in c('01','02','03','04','05','06','07','08','09','10','11','12')){
+	img<-getvesseldensityLite(name = paste("emodnet:2017_",month,"_",vessel_type, sep=""), resolution = "30 arcsec", xmin, xmax, ymin, ymax)
+	names(img) <- paste("2017-",month, sep="")
+	if (month == '01') {imgs <- img
+} else {
+ 	imgs <- stack(imgs, img)
+	}
+}
+mpa_vesselAll2017<-imgs
+
+##################### getvesseldensityLite2018
+for (month in c('01','02','03','04','05','06','07','08','09','10','11','12')){
+	img<-getvesseldensityLite(name = paste("emodnet:2018_",month,"_",vessel_type, sep=""), resolution = "30 arcsec", xmin, xmax, ymin, ymax)
+	names(img) <- paste("2018-",month, sep="")
+	if (month == '01') {imgs <- img
+} else {
+ 	imgs <- stack(imgs, img)
+	}
+}
+mpa_vesselAll2018<-imgs
+
+##################### getvesseldensityLite2019
+for (month in c('01','02','03','04','05','06','07','08','09','10','11','12')){
+	img<-getvesseldensityLite(name = paste("emodnet:2019_",month,"_",vessel_type, sep=""), resolution = "30 arcsec", xmin, xmax, ymin, ymax)
+	names(img) <- paste("2019-",month, sep="")
+	if (month == '01') {imgs <- img
+} else {
+ 	imgs <- stack(imgs, img)
+	}
+}
+mpa_vesselAll2019<-imgs
+
+
+mpa_vesselAll<-mpa_vesselAll2017
+mpa_vesselAll<-stack(mpa_vesselAll, mpa_vesselAll2018)
+mpa_vesselAll<-stack(mpa_vesselAll, mpa_vesselAll2019)
+
+
+crs(mpa)
+mpa$area_sqkm <- area(mpa)/1000000
+################################ Means 2017
+for (month in 1:12){
+datinpoly <- raster::extract(mpa_vesselAll2017[[month:month]], mpa, df = TRUE, cellnumbers = TRUE)
+tabdat <- as.vector(as.matrix(datinpoly[, 3:ncol(datinpoly)]))
+mean_value <- sum(tabdat, na.rm = T)/mpa$area_sqkm
+if (month == 1) {mean <- c(mean_value)
+} else {
+mean <- c(mean, mean_value)
+	}
+}
+Year_2017<-mean
+
+################################ Means 2018
+for (month in 1:12){
+datinpoly <- raster::extract(mpa_vesselAll2018[[month:month]], mpa, df = TRUE, cellnumbers = TRUE)
+tabdat <- as.vector(as.matrix(datinpoly[, 3:ncol(datinpoly)]))
+mean_value <- sum(tabdat, na.rm = T)/mpa$area_sqkm
+if (month == 1) {mean <- c(mean_value)
+} else {
+mean <- c(mean, mean_value)
+	}
+}
+Year_2018<-mean
+
+################################ Means 2019
+for (month in 1:12){
+datinpoly <- raster::extract(mpa_vesselAll2019[[month:month]], mpa, df = TRUE, cellnumbers = TRUE)
+tabdat <- as.vector(as.matrix(datinpoly[, 3:ncol(datinpoly)]))
+mean_value <- sum(tabdat, na.rm = T)/mpa$area_sqkm
+if (month == 1) {mean <- c(mean_value)
+} else {
+mean <- c(mean, mean_value)
+	}
+}
+Year_2019<-mean
+
+Month <- c(01,02,03,04,05,06,07,08,09,10,11,12)
+data_csv <- data.frame(Month, Year_2017, Year_2018, Year_2019)
+
+
+
+return(list(mpa_vesselAll=mpa_vesselAll,data_csv=data_csv))
+
+}
+
+```
+
+
+# Shipping density
+
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_01"
+map_title<-"Fishing"
+layer_title<-"Fishing"
+```
+## `r toString(layer_title)`
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - Fishing", xlab="", ylab="hours per km2")
+
+mpa_fishing<-mpa_vesselTraffic[[1]]
+data_csv_fishing<-mpa_vesselTraffic[[2]]
+```
+
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_02"
+map_title<-"Service"
+layer_title<-"Service"
+```
+## `r toString(layer_title)`
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - Service", xlab="", ylab="hours per km2")
+
+mpa_service<-mpa_vesselTraffic[[1]]
+data_csv_service<-mpa_vesselTraffic[[2]]
+```
+
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_03"
+map_title<-"Dredging"
+layer_title<-"Dredging"
+```
+## `r toString(layer_title)`
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - Dredging", xlab="", ylab="hours per km2")
+
+mpa_dredging<-mpa_vesselTraffic[[1]]
+data_csv_dredging<-mpa_vesselTraffic[[2]]
+```
+
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_04"
+map_title<-"Sailing"
+layer_title<-"Sailing"
+```
+## `r toString(layer_title)`
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - Sailing", xlab="", ylab="hours per km2")
+
+mpa_sailing<-mpa_vesselTraffic[[1]]
+data_csv_sailing<-mpa_vesselTraffic[[2]]
+```
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_05"
+map_title<-"Pleasure Craft"
+layer_title<-"Pleasure Craft"
+```
+## `r toString(layer_title)`
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - Pleasure craft", xlab="", ylab="hours per km2")
+
+mpa_pleasure<-mpa_vesselTraffic[[1]]
+data_csv_pleasure<-mpa_vesselTraffic[[2]]
+```
+
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_06"
+map_title<-"High Speed craft"
+layer_title<-"High Speed craft"
+```
+## `r toString(layer_title)`
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - High speed craft", xlab="", ylab="hours per km2")
+
+mpa_speedcraft<-mpa_vesselTraffic[[1]]
+data_csv_speedcraft<-mpa_vesselTraffic[[2]]
+```
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_07"
+map_title<-"Tug and towing"
+layer_title<-"Tug and towing"
+```
+## `r toString(layer_title)`
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - Tug and towing", xlab="", ylab="hours per km2")
+
+mpa_tug<-mpa_vesselTraffic[[1]]
+data_csv_tug<-mpa_vesselTraffic[[2]]
+```
+
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_08"
+map_title<-"Passenger"
+layer_title<-"Passenger"
+```
+## `r toString(layer_title)`
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - Passenger", xlab="", ylab="hours per km2")
+
+mpa_passenger<-mpa_vesselTraffic[[1]]
+data_csv_passenger<-mpa_vesselTraffic[[2]]
+```
+
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_09"
+map_title<-"Cargo"
+layer_title<-"Cargo"
+```
+## `r toString(layer_title)`
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - Cargo", xlab="", ylab="hours per km2")
+
+mpa_cargo<-mpa_vesselTraffic[[1]]
+data_csv_cargo<-mpa_vesselTraffic[[2]]
+```
+
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_10"
+map_title<-"Tanker"
+layer_title<-"Tanker"
+```
+## `r toString(layer_title)`
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - Tanker", xlab="", ylab="hours per km2")
+
+mpa_tanker<-mpa_vesselTraffic[[1]]
+data_csv_tanker<-mpa_vesselTraffic[[2]]
+```
+
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_11"
+map_title<-"Military and Law Enforcement"
+layer_title<-"Military"
+```
+## `r toString(layer_title)`
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - Military", xlab="", ylab="hours per km2")
+
+mpa_military<-mpa_vesselTraffic[[1]]
+data_csv_military<-mpa_vesselTraffic[[2]]
+```
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_12"
+map_title<-"Unknown"
+layer_title<-"Unknown"
+```
+## `r toString(layer_title)`
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - Unknown", xlab="", ylab="hours per km2")
+
+mpa_unknown<-mpa_vesselTraffic[[1]]
+data_csv_unknown<-mpa_vesselTraffic[[2]]
+```
+
+# Statistics
+
+
+```{r, echo=FALSE}
+
+fishing<-colMeans(data_csv_fishing)
+names(fishing)<-c('Type', '2017', '2018', '2019')
+fishing[1]<- 'Fishing'
+fishing_sum <- data.frame(group = c("group","2017", "2018", "2019"),value = c("fishing",sum(data_csv_fishing$Year_2017), sum(data_csv_fishing$Year_2018), sum(data_csv_fishing$Year_2019)))
+dfishing <- data.frame(t(fishing_sum[-1]))
+colnames(dfishing) <- fishing_sum[, 1]
+
+service<-colMeans(data_csv_service)
+names(service)<-c('Type', '2017', '2018', '2019')
+service[1]<- 'Service'
+service_sum <- data.frame(group = c("group","2017", "2018", "2019"),value = c("service",sum(data_csv_service$Year_2017), sum(data_csv_service$Year_2018), sum(data_csv_service$Year_2019)))
+dservice <- data.frame(t(service_sum[-1]))
+colnames(dservice) <- service_sum[, 1]
+
+dredging<-colMeans(data_csv_dredging)
+names(dredging)<-c('Type', '2017', '2018', '2019')
+dredging[1]<- 'Dredging'
+dredging_sum <- data.frame(group = c("group","2017", "2018", "2019"),value = c("dredging",sum(data_csv_dredging$Year_2017), sum(data_csv_dredging$Year_2018), sum(data_csv_dredging$Year_2019)))
+ddredging <- data.frame(t(dredging_sum[-1]))
+colnames(ddredging) <- dredging_sum[, 1]
+
+
+sailing<-colMeans(data_csv_sailing)
+names(sailing)<-c('Type', '2017', '2018', '2019')
+sailing[1]<- 'Sailing'
+sailing_sum <- data.frame(group = c("group","2017", "2018", "2019"),value = c("sailing",sum(data_csv_sailing$Year_2017), sum(data_csv_sailing$Year_2018), sum(data_csv_sailing$Year_2019)))
+dsailing <- data.frame(t(sailing_sum[-1]))
+colnames(dsailing) <- sailing_sum[, 1]
+
+pleasure<-colMeans(data_csv_pleasure)
+names(pleasure)<-c('Type', '2017', '2018', '2019')
+pleasure[1]<- 'Pleasure'
+pleasure_sum <- data.frame(group = c("group","2017", "2018", "2019"),value = c("pleasure",sum(data_csv_pleasure$Year_2017), sum(data_csv_pleasure$Year_2018), sum(data_csv_pleasure$Year_2019)))
+dpleasure <- data.frame(t(pleasure_sum[-1]))
+colnames(dpleasure) <- pleasure_sum[, 1]
+
+speedcraft<-colMeans(data_csv_speedcraft)
+names(speedcraft)<-c('Type', '2017', '2018', '2019')
+speedcraft[1]<- 'Speed craft'
+speedcraft_sum <- data.frame(group = c("group","2017", "2018", "2019"),value = c("speedcraft",sum(data_csv_speedcraft$Year_2017), sum(data_csv_speedcraft$Year_2018), sum(data_csv_speedcraft$Year_2019)))
+dspeedcraft <- data.frame(t(speedcraft_sum[-1]))
+colnames(dspeedcraft) <- speedcraft_sum[, 1]
+
+
+tug<-colMeans(data_csv_tug)
+names(tug)<-c('Type', '2017', '2018', '2019')
+tug[1]<- 'Tug'
+tug_sum <- data.frame(group = c("group","2017", "2018", "2019"),value = c("tug",sum(data_csv_tug$Year_2017), sum(data_csv_tug$Year_2018), sum(data_csv_tug$Year_2019)))
+dtug <- data.frame(t(tug_sum[-1]))
+colnames(dtug) <- tug_sum[, 1]
+
+passenger<-colMeans(data_csv_passenger)
+names(passenger)<-c('Type', '2017', '2018', '2019')
+passenger[1]<- 'Passenger'
+passenger_sum <- data.frame(group = c("group","2017", "2018", "2019"),value = c("passenger",sum(data_csv_passenger$Year_2017), sum(data_csv_passenger$Year_2018), sum(data_csv_passenger$Year_2019)))
+dpassenger <- data.frame(t(passenger_sum[-1]))
+colnames(dpassenger) <- passenger_sum[, 1]
+
+cargo<-colMeans(data_csv_cargo)
+names(cargo)<-c('Type', '2017', '2018', '2019')
+cargo[1]<- 'Cargo'
+cargo_sum <- data.frame(group = c("group","2017", "2018", "2019"),value = c("cargo",sum(data_csv_cargo$Year_2017), sum(data_csv_cargo$Year_2018), sum(data_csv_cargo$Year_2019)))
+dcargo <- data.frame(t(cargo_sum[-1]))
+colnames(dcargo) <- cargo_sum[, 1]
+
+tanker<-colMeans(data_csv_tanker)
+names(tanker)<-c('Type', '2017', '2018', '2019')
+tanker[1]<- 'Tanker'
+tanker_sum <- data.frame(group = c("group","2017", "2018", "2019"),value = c("tanker",sum(data_csv_tanker$Year_2017), sum(data_csv_tanker$Year_2018), sum(data_csv_tanker$Year_2019)))
+dtanker <- data.frame(t(tanker_sum[-1]))
+colnames(dtanker) <- tanker_sum[, 1]
+
+military<-colMeans(data_csv_military)
+names(military)<-c('Type', '2017', '2018', '2019')
+military[1]<- 'military'
+military_sum <- data.frame(group = c("group","2017", "2018", "2019"),value = c("military",sum(data_csv_military$Year_2017), sum(data_csv_military$Year_2018), sum(data_csv_military$Year_2019)))
+dmilitary <- data.frame(t(military_sum[-1]))
+colnames(dmilitary) <- military_sum[, 1]
+
+unknown<-colMeans(data_csv_unknown)
+names(unknown)<-c('Type', '2017', '2018', '2019')
+unknown[1]<- 'Unknown'
+unknown_sum <- data.frame(group = c("group","2017", "2018", "2019"),value = c("unknown",sum(data_csv_unknown$Year_2017), sum(data_csv_unknown$Year_2018), sum(data_csv_unknown$Year_2019)))
+dunknown <- data.frame(t(unknown_sum[-1]))
+colnames(dunknown) <- unknown_sum[, 1]
+
+
+allgroup <- c("fishing","service","dredging","sailing","pleasure","speedcraft","tug","passenger","cargo","tanker","military","unknown")
+mean2017 <- c(as.numeric(as.character(dfishing[[2]])),as.numeric(as.character(dservice[[2]])),as.numeric(as.character(ddredging[[2]])),as.numeric(as.character(dsailing[[2]])),as.numeric(as.character(dpleasure[[2]])),as.numeric(as.character(dspeedcraft[[2]])),as.numeric(as.character(dtug[[2]])),as.numeric(as.character(dpassenger[[2]])),as.numeric(as.character(dcargo[[2]])),as.numeric(as.character(dtanker[[2]])),as.numeric(as.character(dmilitary[[2]])),as.numeric(as.character(dunknown[[2]])))
+mean2018 <- c(as.numeric(as.character(dfishing[[3]])),as.numeric(as.character(dservice[[3]])),as.numeric(as.character(ddredging[[3]])),as.numeric(as.character(dsailing[[3]])),as.numeric(as.character(dpleasure[[3]])),as.numeric(as.character(dspeedcraft[[3]])),as.numeric(as.character(dtug[[3]])),as.numeric(as.character(dpassenger[[3]])),as.numeric(as.character(dcargo[[3]])),as.numeric(as.character(dtanker[[3]])),as.numeric(as.character(dmilitary[[3]])),as.numeric(as.character(dunknown[[3]])))
+mean2019 <- c(as.numeric(as.character(dfishing[[4]])),as.numeric(as.character(dservice[[4]])),as.numeric(as.character(ddredging[[4]])),as.numeric(as.character(dsailing[[4]])),as.numeric(as.character(dpleasure[[4]])),as.numeric(as.character(dspeedcraft[[4]])),as.numeric(as.character(dtug[[4]])),as.numeric(as.character(dpassenger[[4]])),as.numeric(as.character(dcargo[[4]])),as.numeric(as.character(dtanker[[4]])),as.numeric(as.character(dmilitary[[4]])),as.numeric(as.character(dunknown[[4]])))
+
+
+
+```
+
+## Distribution
+
+```{r, echo=FALSE}
+
+df<-data.frame(allgroup,mean2017,mean2018,mean2019)
+
+map_2017<-ggplot(df, aes(x = allgroup, y = mean2017, fill=allgroup)) + geom_bar(stat = "identity")+ ylab("H/km^2")+ xlab("Vessel type") + ggtitle("2017 - Distribution (hours per km2)")+ theme(axis.text.x=element_text(angle=90, hjust=1))
+plot(map_2017)
+
+map_2018<-ggplot(df, aes(x = allgroup, y = mean2018, fill=allgroup)) + geom_bar(stat = "identity")+ ylab("H/km^2")+ xlab("Vessel type") + ggtitle("2018 - Distribution (hours per km2)")+ theme(axis.text.x=element_text(angle=90, hjust=1))
+plot(map_2018)
+
+map_2019<-ggplot(df, aes(x = allgroup, y = mean2019, fill=allgroup)) + geom_bar(stat = "identity")+ ylab("H/km^2")+ xlab("Vessel type") + ggtitle("2019 - Distribution (hours per km2)")+ theme(axis.text.x=element_text(angle=90, hjust=1))
+plot(map_2019)
+
+df
+
+
+```
+
+
+```{r, echo=FALSE}
+
+df_percent <- df
+df_percent$mean2017 <- (df_percent$mean2017/sum(df$mean2017))*100
+df_percent$mean2018 <- (df_percent$mean2018/sum(df$mean2018))*100
+df_percent$mean2019 <- (df_percent$mean2019/sum(df$mean2019))*100
+
+map_percent2017<-ggplot(df_percent, aes(x = allgroup, y = mean2017, fill=allgroup)) + geom_bar(stat = "identity")+ ylab("%")+ xlab("Vessel type") + ggtitle("2017 - Distribution (%)")+ theme(axis.text.x=element_text(angle=90, hjust=1))
+plot(map_percent2017)
+
+map_percent2018<-ggplot(df_percent, aes(x = allgroup, y = mean2018, fill=allgroup)) + geom_bar(stat = "identity")+ ylab("%")+ xlab("Vessel type") + ggtitle("2018 - Distribution (%)")+ theme(axis.text.x=element_text(angle=90, hjust=1))
+plot(map_percent2018)
+
+map_percent2019<-ggplot(df_percent, aes(x = allgroup, y = mean2019, fill=allgroup)) + geom_bar(stat = "identity")+ ylab("%")+ xlab("Vessel type") + ggtitle("2019 - Distribution (%)")+ theme(axis.text.x=element_text(angle=90, hjust=1))
+plot(map_percent2019)
+
+df_percent
+
+```
+
+
+## Global traffic
+
+```{r, echo=FALSE}
+df_traffic <- data.frame( year = c("2017", "2018", "2019"), value = c(sum(df$mean2017), sum(df$mean2018), sum(df$mean2019)))
+
+map_traffic<-ggplot(df_traffic, aes(x = year, y = value, fill=year)) + geom_bar(stat = "identity")+ ylab("hours per km2")+ xlab("Year") + ggtitle("Total amount per year")
+plot(map_traffic)
+
+df_traffic
+
+```
+
+```{r, include=FALSE, results='hide'}
+vessel_type <- "st_All"
+map_title<-"Global traffic"
+layer_title<-"Global traffic"
+```
+
+```{r, echo=FALSE}
+mpa_vesselTraffic<-getstat(vessel_type = vessel_type, xmin, xmax, ymin, ymax)
+#print map of the average
+Plot_Code <- c("mpa_vesselAll")
+Plot_Name <- c(map_title)
+Plot_NAME <- c("ALL")
+X = list(Plot_Code, Plot_Name, Plot_NAME)
+plt_vessel<-mpaprocessplot(mpa_vesselTraffic[[1]],mpa=mpa,name=X[[2]][1],unite="hours/month",logscale=T)
+plt_vessel[[2]]+latticeExtra::layer(sp.polygons(mpa,col="red"))
+#print Time series
+xyplot(Year_2017+Year_2018+Year_2019~Month, data=mpa_vesselTraffic[[2]], type='l', auto.key=list(space='bottom'), main="Monthly means - Global trafic", xlab="", ylab="hours per km2")
+
+mpa_global<-mpa_vesselTraffic[[1]]
+data_csv_global<-mpa_vesselTraffic[[2]]
+```
+
+
+# Hierarchical clustering
+
+```{r, include=FALSE, results='hide'}
+
+library(dplyr)
+library(raster)
+library(rworldmap)
+library(rworldxtra)
+library(NbClust)
+library(tidyr)
+library(dplyr)
+library(fastcluster)
+library(FactoMineR)
+library(sf)
+
+```
+
+
+
+
+
+```{r, include=FALSE, results='hide'}
+###########PROCESSING
+
+#land data to mask data
+landmask <- rworldmap::getMap(resolution = "high")
+
+
+#raster 2 datafram
+r2df<-function(r){
+	tmp<-raster::as.data.frame(r,xy=T)%>%
+		tidyr::pivot_longer(3:(2+dim(r)[3]))
+	return(tmp)
+}
+
+#group vessel cat + reduce spatial resolution + mask to avoid onland info
+aggfac<-4 # reduction factor
+#allmpa
+allmpa<-list(mpa_fishing,mpa_dredging,mpa_sailing,mpa_pleasure,mpa_speedcraft,mpa_passenger,mpa_cargo,mpa_tanker,mpa_service,mpa_tug,mpa_military)
+#aggregate
+allmpa<-lapply(allmpa,aggregate,fact=aggfac)
+#mask
+allmpa<-lapply(allmpa,mask,mask=landmask,inverse=T)
+#yearly
+fsapply<-function(a){return(stackApply(a,indices=substr(names(a),2,5),fun=mean,na.rm=T))}
+fsapply(mpa_fishing)
+allmpa<-lapply(allmpa,fsapply)
+
+#individual group or sum
+
+#fishing
+fishAIS<-r2df(allmpa[[1]])
+
+#dredging
+dredAIS<-r2df(allmpa[[2]])
+
+#sailing
+tmp1<-r2df(allmpa[[3]])%>%mutate(value1=value)%>%dplyr::select(-value)
+tmp2<-r2df(allmpa[[4]])%>%mutate(value2=value)%>%dplyr::select(-value)
+tmp<-full_join(tmp1,tmp2)
+tmp$sum<-apply(tmp[,4:5],1,sum,na.rm=T)
+sailAIS<-tmp%>%transmute(x,y,name,value=sum)
+
+#transport
+tmp1<-r2df(allmpa[[5]])%>%mutate(value1=value)%>%dplyr::select(-value)
+tmp2<-r2df(allmpa[[6]])%>%mutate(value2=value)%>%dplyr::select(-value)
+tmp3<-r2df(allmpa[[7]])%>%mutate(value3=value)%>%dplyr::select(-value)
+tmp4<-r2df(allmpa[[8]])%>%mutate(value4=value)%>%dplyr::select(-value)
+tmp<-full_join(full_join(full_join(tmp1,tmp2),tmp3),tmp4)
+tmp$sum<-apply(tmp[,4:7],1,sum,na.rm=T)
+tranAIS<-tmp%>%transmute(x,y,name,value=sum)
+
+#service
+tmp1<-r2df(allmpa[[8]])%>%mutate(value1=value)%>%dplyr::select(-value)
+tmp2<-r2df(allmpa[[9]])%>%mutate(value2=value)%>%dplyr::select(-value)
+tmp3<-r2df(allmpa[[10]])%>%mutate(value3=value)%>%dplyr::select(-value)
+tmp<-full_join(full_join(tmp1,tmp2),tmp3)
+tmp$sum<-apply(tmp[,4:6],1,sum,na.rm=T)
+servAIS<-tmp%>%transmute(x,y,name,value=sum)
+
+#eliminate pt at land
+landmask2<-st_as_sf(landmask)
+#pt2<-st_as_sf(fishAIS,coords=c("x","y"),crs=crs(landmask2))
+pt2<-st_as_sf(fishAIS,coords=c("x","y"),crs=CRS("+proj=longlat +datum=WGS84"))
+landmask2<-st_crop(st_as_sf(landmask),extent(pt2))
+
+#pt at sea 
+ptin<-!apply(st_intersects(pt2,landmask2,sparse=F),1,any)
+
+#plot(alldf[[1]][ptin,1:2])
+#list of all stuff
+alldf<-list(fishAIS[ptin,],dredAIS[ptin,],sailAIS[ptin,],tranAIS[ptin,],servAIS[ptin,])
+
+#fct to add a name
+fname<-function(a,nom){a$type<-nom;return(a)}
+maptmp<-do.call("rbind",Map(fname,alldf,c("Fishing","Dreding","Sailing","Transport","Services")))
+
+```
+
+## Yearly densities
+
+Yearly Vessel densities by activity type
+
+```{r ,echo=FALSE, fig.width = 5.5, fig.asp = 1.4}
+
+
+map<-ggplot(maptmp,aes(x=x,y=y,fill=value))+geom_raster()+
+	scale_fill_distiller(palette="Spectral",name="Zone",trans="log10")+
+	facet_grid(type~name)+
+	borders("world",fill="grey",colour=NA)+
+	coord_sf(xlim=range(maptmp$x),ylim=range(maptmp$y))+
+	xlab("Longitude")+ylab("Latitude")+
+	theme_bw()+
+	theme(legend.position="bottom")
+
+plot(map)
+
+```
+
+```{r ,echo=FALSE, fig.width = 5.5, fig.asp = 1.4}
+
+
+map<-ggplot(maptmp,aes(x=x,y=y,fill=value))+geom_raster()+
+  scale_fill_fermenter(palette="Spectral",name="H/km^2",trans="log10")+
+	facet_grid(type~name)+
+	borders("world",fill="grey",colour=NA)+
+	coord_sf(xlim=range(maptmp$x),ylim=range(maptmp$y))+
+	xlab("Longitude")+ylab("Latitude")+
+	theme_bw()+
+	theme(legend.position="bottom")
+
+#plot(map)
+
+```
+
+```{r, include=FALSE, results='hide'}
+
+#classif 
+classif<-function(tmp){
+	#tmp<-alldf[[4]]%>%group_by(name)%>%
+	tmp<-tmp%>%group_by(name)%>%
+		mutate(m=min(value,na.rm=T),
+		       q=quantile(value,.95,na.rm=T))%>%
+		ungroup()%>%
+		mutate(value=ifelse(is.na(value),0,value))%>%
+		dplyr::select(-m,-q)
+	#tmp<-alldf[[1]]
+	#tmp$value<-log10(tmp$value+1)
+	tmp$value<-log10(tmp$value+1)
+	mat0<-tmp%>%tidyr::pivot_wider(values_from=value,names_from=name)#,values_fill=0)
+	idptNA<-is.finite(apply(mat0[,-c(1:2)],1,sum))
+	#str(mat0[,-c(1:2)])
+	d<-stats::dist((mat0[,-c(1:2)]))
+	clust <-fastcluster::hclust(d, method = "ward.D2")
+	pipo<-data.frame(x=mat0$x,y=mat0$y,zone=cutree(clust,6))
+	return(pipo)
+}
+allzone<-lapply(alldf,classif)
+maptmp<-do.call("rbind",Map(fname,allzone,c("fish","dred","sail","tran","serv")))
+
+
+
+```
+
+## Classification by activities
+
+Classification of vessel densities by activity type
+
+```{r ,echo=FALSE, fig.width = 5.5, fig.asp = 1.4}
+
+map <- ggplot(maptmp,
+       aes(x=x,y=y,fill=as.factor(zone)))+geom_raster()+
+	scale_fill_brewer(palette="Set3",name="Cluster")+#,trans="log10")+
+	#de\n navires\n(h.km^2)",trans="log10")+
+	facet_wrap(~type,ncol=2)+
+	borders("world",fill="grey",colour=NA)+
+	coord_sf(xlim=range(maptmp$x),ylim=range(maptmp$y))+
+	xlab("Longitude")+ylab("Latitude")+
+	theme_bw()#+
+
+plot(map)
+
+
+```
+
+```{r, include=FALSE, results='hide'}
+
+
+#MCA
+uu<-do.call("rbind",Map(fname,allzone,c("fish","dred","sail","tran","serv")))%>%
+	mutate(zonetype=paste0(type,"-",zone))%>%
+	dplyr::select(-zone)%>%
+	pivot_wider(values_from=zonetype,names_from=type)
+mca <- MCA(uu[,-c(1,2)], ncp=999, method="Burt", graph=F)
+#
+#plotellipses(mca, axes = c(1,2))
+#plotellipses(mca, axes = c(1,3))
+
+#final classif
+d <- dist(mca$ind$coord)
+clust <- fastcluster::hclust(d, method="ward.D2")
+groups <- cutree(clust,6)
+
+finalzone <- data.frame(uu[,c(1,2)],Cluster=factor(groups))
+
+
+```
+
+## Maritime activities clusters
+
+Overall classification of maritime activities seen by AIS
+
+```{r ,echo=FALSE, fig.width = 5.5, fig.asp = 1.4}
+
+map <- ggplot(finalzone,
+       aes(x=x,y=y,fill=Cluster))+geom_raster()+
+	scale_fill_brewer(palette="Set3",name="Cluster")+
+	borders("world",fill="grey",colour=NA)+
+	coord_sf(xlim=range(finalzone$x),ylim=range(finalzone$y))+
+	xlab("Longitude")+ylab("Latitude")+
+	theme_bw()#+
+
+plot(map)
+
+#add stuff
+allrez<-do.call("rbind",Map(fname,alldf,c("fish","dred","sail","tran","serv")))%>%
+	left_join(finalzone)
+
+```
+
+## Boxplot
+
+Boxplot of the maritime activities by clusters
+
+```{r ,echo=FALSE}
+
+
+map<-ggplot()+
+	  geom_boxplot(data=allrez,aes(x=type,y=value,fill=type))+
+	    facet_wrap(~Cluster,nrow=2)+xlab("type")+ylab("Parameters")+
+	    scale_y_log10()+
+	      scale_fill_brewer(palette="Set3")
+
+plot(map)
+
+```
+
+# All data
+
+Monthly means (hours/km<sup>2</sup>)
+
+```{r, echo=FALSE}
+print("01/ Fishing")
+data_csv_fishing
+print("02/ Service")
+data_csv_service
+print("03/ Dredging")
+data_csv_dredging
+print("04/ Sailing")
+data_csv_sailing
+print("05/ Pleasure Craft")
+data_csv_pleasure
+print("06/ High Speed Craft")
+data_csv_speedcraft
+print("07/ Tug and Towing")
+data_csv_tug
+print("08/ Passenger")
+data_csv_passenger
+print("09/ Cargo")
+data_csv_cargo
+print("10/ Tanker")
+data_csv_tanker
+print("11/ Military and Law Enforcement")
+data_csv_military
+print("12/ Unknown")
+data_csv_unknown
+print("13/ Global traffic")
+data_csv_global
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
