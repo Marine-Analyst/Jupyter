@@ -1,0 +1,89 @@
+---
+title: "Chlorophyll Sandbox"
+author: Document produced by C. Schlagenhauf, L. Dubroca, P. Derycke
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    number_section: yes
+    theme: default
+    toc: yes
+    toc_depth: 2
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(
+  eval = TRUE,
+	echo = TRUE,
+	fig.align = "center",
+	message = FALSE,
+	warning = FALSE,
+	fig.width=5.5,
+	out.width = "100%"
+)
+# clean environment
+rm(list=ls())
+gc()
+```
+
+```{r, include=FALSE, results='hide'}
+# Chlorophyll Sandbox
+
+Sessionid <- 'Chlorophyll Gradients'
+source_provider <- "Copernicus Marine Service"
+source_provider_url <- "https://marine.copernicus.eu"
+layer_title<-"Chl-a gradients 1998-2020"
+layer_sst<-"Sea Surface Temperature gradients 2001-2020"
+layer_Chla<-"Chlorophyll-a gradients 1998-2020"
+
+# Define Region of interest (Bounding Box Longitude/latittude)
+maxlat<- 51.4
+maxlon<- 1.9
+minlon<- -5.9
+minlat<- 48
+
+temp_path<- "/user/my-beach/"
+
+xmin <- as.numeric(minlon)
+ymin <- as.numeric(minlat)
+xmax <- as.numeric(maxlon)
+ymax <- as.numeric(maxlat)
+
+
+
+```
+
+
+The <b>Chlorophyll sandbox</b> is an analytical framework dedicated to the study of the Chlorophyll-A patterns. It leverages the scalability of an Elasticsearch cluster and enables a readily accessible digital twin ocean, fit for machine learning on big data. 20 years of satellite data at the global scale, more than 25 billion measurements, are available to deliver insights for any region of interest.
+
+# Data information
+
+
+Chl-a oceanic fronts are zones of rapidly changing phytoplankton and zooplankton biomass concentrations. These fronts, which can be observed by satellites (ocean colour), are structuring for a large number of natural processes like high biodiversity areas. They provide habitat for marine megafauna and have been proposed as proxies for pelagic diversity in the designation of marine protected areas. By extension, these fronts also support anthropic activities like fishing and aquaculture. The study of seasonal and interannual variation of fronts is important to better understand the physical, biogeochemical and ecological functioning of the marine environment.
+
+
+<UL>
+<LI>	Chlorophyll-a and SST monthly trends, anomalies and climatologies
+<LI>	Environmental classification based on Chlorophyll-a and SST patterns
+<LI>	Chlorophyll-a clustering analysis on 5 days datasets (interpolated with DIVA)
+<LI>	Chlorophyll-a and SST forecast trends and gradients
+</UL>
+
+Data provider: https://marine.copernicus.eu
+
+
+# Geographical extent
+
+
+## Coordinates
+```{r,echo=FALSE}
+print (paste("West-Longitude:",round(xmin,2)))
+print (paste("South-Latitude:",round(ymin,2)))
+print (paste("East-Longitude:",round(xmax,2)))
+print (paste("North-Latitude:",round(ymax,2)))
+```
+
+
+
