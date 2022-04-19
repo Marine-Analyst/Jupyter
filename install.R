@@ -28,4 +28,5 @@ install.packages("fastcluster")
 install.packages("dplyr")
 install.packages("FactoMineR")
 install.packages("NbClust")
-
+require(devtools)
+install_version("rmarkdown", version = "2.13", repos = "https://cran.r-project.org")
